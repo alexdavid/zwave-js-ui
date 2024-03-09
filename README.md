@@ -1,48 +1,48 @@
-# Z-Wave JS UI
+# Nix Z-Wave JS UI
 
-<div>
-  <img style="background-color: #fff; border-radius: 15px" src="docs/_images/app_logo.svg" alt="Z-Wave JS UI">
-</div>
+This is a fork of [`zwave-js-ui`](https://github.com/zwave-js/zwave-js-ui) that
+I have nixified for deployment in my infrastructure.
 
-![GitHub package.json version](https://img.shields.io/github/package-json/v/zwave-js/zwave-js-ui)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
-[![MadeWithVueJs.com shield](https://madewithvuejs.com/storage/repo-shields/1897-shield.svg)](https://madewithvuejs.com/p/zwave2mqtt/shield-link)
-[![MIT Licence](https://badges.frapsoft.com/os/mit/mit.png)](https://opensource.org/licenses/mit-license.php)
-[![ci](https://github.com/zwave-js/zwave-js-ui/workflows/ci/badge.svg?branch=master)](https://github.com/zwave-js/zwave-js-ui/actions?query=workflow%3Aci+branch%3Amaster)
-[![Docker Release](https://github.com/zwave-js/zwave-js-ui/actions/workflows/docker-release.yml/badge.svg)](https://github.com/zwave-js/zwave-js-ui/actions/workflows/docker-release.yml)
-[![GitHub All Releases](https://img.shields.io/github/downloads/zwave-js/zwave-js-ui/total)](https://github.com/zwave-js/zwave-js-ui/releases)
-[![Coverage Status](https://coveralls.io/repos/github/zwave-js/zwave-js-ui/badge.svg?branch=master)](https://coveralls.io/github/zwave-js/zwave-js-ui?branch=master)
-[![Known Vulnerabilities](https://snyk.io/test/github/zwave-js/zwave-js-ui/badge.svg?targetFile=package.json)](https://snyk.io/test/github/zwave-js/zwave-js-ui?targetFile=package.json)
+Attempting to nixify it with `npmlock2nix` results in issues because
+`zwave-js-ui` depends on [`pinia`](https://www.npmjs.com/package/pinia), which
+depends on [`vue-demi`](https://www.npmjs.com/package/vue-demi). `vue-demi`
+seems to do some [crazy post-install
+shenanigans](https://github.com/vueuse/vue-demi/blob/main/package.json#L35) to
+actually template out the `node_modules` directory which does not play well
+with `npmlock2nix`.
 
-[![Discord](https://img.shields.io/discord/1111193770935996459?color=D82167&label=Chat%20on%20Discord&logo=Discord&logoColor=ffffff)](https://discord.gg/HFqcyFNfWd)
+After banging my head against the wall on this problem for a few hours I
+decided it would just be simpler to vendor `node_modules` and write a flake
+file around that.
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/MVg9wc2HE "Buy Me A Coffee") [<img style="background:#ccc;border-radius:10px" alt="PayPal" src="https://www.paypalobjects.com/paypal-ui/logos/svg/paypal-color.svg" width="200" height="40px" />](https://paypal.me/daniellando) [![Patreon](https://c5.patreon.com/external/logo/become_a_patron_button.png)](https://www.patreon.com/bePatron?u=16906849) [<img src="https://liberapay.com/assets/widgets/donate.svg" alt="Donate using Liberapay" />](https://liberapay.com/robertsLando/donate)[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I1JN3M5)
+Related:
+https://github.com/NixOS/nixpkgs/issues/230686
 
-[![dockeri.co](https://dockerico.blankenship.io/image/zwavejs/zwave-js-ui)](https://hub.docker.com/r/zwavejs/zwave-js-ui)
+## Usage
 
-Full featured Z-Wave **Control Panel** and MQTT **Gateway**.
+Via a systemd unit:
+```nix
+systemd.user.services.zwave-js-ui = {
+  enable = true;
+  serviceConfig = {
+    Type = "simple";
+    ExecStart = ''
+      ${pkgs.lib.meta.getExe ${zwave-js-ui-flake-input}.packages.${system}.default} /path/to/store;
+    '';
+  };
+};
+```
 
-- **Backend**: [NodeJS](https://nodejs.org/en/), [Express](https://expressjs.com/), [socket.io](https://github.com/socketio/socket.io), [MQTTjs](https://github.com/mqttjs/MQTT.js), [zwavejs](https://github.com/zwave-js/node-zwave-js), [Webpack](https://webpack.js.org/)
-- **Frontend**: [Vue](https://vuejs.org/), [socket.io](https://github.com/socketio/socket.io), [Vuetify](https://github.com/vuetifyjs/vuetify)
+## Jail
 
-## Main features
+This flake currently runs zwave-js-ui in a bubblewrap jail. This is done for
+two reasons:
 
-- **Control Panel UI**: Directly control your nodes and their values from the UI, including:
-  - *Nodes management*: Add, remove, and configure all nodes in your Z-Wave network
-  - *Firmware updates*: Update device firmware using manufacturer-supplied firmware files
-  - *Groups associations*: Add, edit, and remove direct node associations
-  - *Z-Wave JS Exposed*: Provides full-access to Z-Wave JS's APIs
-- **Full-Featured Z-Wave to MQTT Gateway**: Expose Z-Wave devices to an MQTT broker in a fully configurable manner
-- **Secured**: Supports *HTTPS* and *user authentication*
-- **Scene Management**: Create scenes and trigger them by using MQTT apis (with timeout support)
-- **Debug Logs in the UI**: See debug logs directly from the UI
-- **Access Store Files in the UI**: Access the files are stored in the persistent `store` folder directly from the UI
-- **Network Graph**: Provides a beautiful map showing how nodes are communicating with the controller
-- **Supports the Official Home Assistant Integration**: Can act as the backend driver for the official Home Assistant integration, using the same driver and socket server as the official addon
-- **Supports Home Assistant Discovery via MQTT**: In lieu of the official integation, can be used to expose Z-Wave devices to Home Assistant via MQTT discovery.
-- **Supported by Domoticz** (beta 2021.1) using MQTT Autodiscovery.
-- **Automatic/Scheduled backups**: Scheduled backup of NVM and store directory. It's also possible to enable automatic backups of NVM before every node inclusion/exclusion/replace, this ensures to create a safe restore point before any operation that can cause a network corruption.
+1. It was a trivial way to bind-mount a `store` directory which zwave-js-ui
+   expects to be within the source directory. This way the nodejs source can
+   stay in `/nix/store` and a `store` that zwave-js-ui writes to can be any
+2. I personally do not like to run anything from npm outside of a sandbox given
+   its track record of supply-chain attacks.
 
-## Documentation
-
-[Project documentation](https://zwave-js.github.io/zwave-js-ui/#/)
+I have not yet tested running this with a usb zwave controller yet. The call to
+`bwrap` will likely need to change.
